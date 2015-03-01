@@ -1,0 +1,159 @@
+//loadEnvSpecificConfig()
+
+apply plugin: 'war'
+apply plugin: 'eclipse-wtp'
+apply plugin: 'groovy'
+apply plugin: 'tomcat'
+
+targetCompatibility = 1.8
+sourceCompatibility = 1.8
+
+configurations.all {
+	resolutionStrategy {
+		failOnVersionConflict()
+		force 'org.springframework:spring-context:4.1.5.RELEASE', 'org.springframework:spring-beans:4.1.5.RELEASE','org.springframework:spring-core:4.1.5.RELEASE',
+		'org.springframework:spring-expression:4.1.5.RELEASE','org.springframework:spring-aop:4.1.5.RELEASE','org.springframework:spring-web:4.1.5.RELEASE',
+		'javax.servlet:servlet-api:2.5'
+	}
+	exclude group: 'commons-logging'
+}
+
+repositories {
+    mavenCentral()
+}
+
+sourceSets {
+	integration {
+		java {
+			compileClasspath += main.output
+			runtimeClasspath += main.output
+		}
+	}
+}
+
+dependencies {
+    compile group: 'commons-io', name: 'commons-io', version: '1.4'
+    compile group: 'log4j', name: 'log4j', version: '1.2.15', ext: 'jar'
+	compile 'org.springframework:spring-context:4.1.5.RELEASE'
+	compile 'org.springframework:spring-orm:4.1.5.RELEASE'
+	compile 'org.springframework:spring-webmvc:4.1.5.RELEASE'
+	compile 'org.springframework.security:spring-security-config:3.2.1.RELEASE'
+	compile 'org.springframework.security:spring-security-web:3.2.1.RELEASE'
+	compile 'org.springframework:spring-tx:4.1.5.RELEASE'
+	compile 'org.hibernate:hibernate-entitymanager:4.3.4.Final'
+	compile 'org.apache.commons:commons-lang3:3.3'
+	compile 'commons-beanutils:commons-beanutils:1.9.2'
+	
+	providedCompile 'org.slf4j:jcl-over-slf4j:1.7.6'
+	providedCompile 'javax.servlet:javax.servlet-api:3.0.1'
+	compile 'javax.transaction:javax.transaction-api:1.2'
+	//providedCompile 'javax.servlet:servlet-api:2.5', 'javax.servlet:jsp-api:2.0'
+	compile 'org.hibernate:hibernate-validator:5.1.0.Final'
+	compile 'javax.inject:javax.inject:1'
+	compile 'com.fasterxml.jackson.core:jackson-databind:2.3.2'
+	compile 'org.hsqldb:hsqldb:2.3.2'
+	compile 'commons-dbcp:commons-dbcp:1.4'
+	
+	
+	testCompile 'junit:junit:4.11'
+	testCompile 'org.mockito:mockito-all:1.9.5'
+	testCompile 'org.springframework:spring-test:4.0.2.RELEASE'
+	testCompile 'org.glassfish:javax.el:3.0.0'
+	testCompile 'org.hamcrest:hamcrest-all:1.3'
+	
+	integrationCompile sourceSets.main.output
+	integrationCompile configurations.testCompile
+	integrationCompile sourceSets.test.output
+	integrationRuntime configurations.testRuntime
+	
+	def tomcatVersion = '7.0.52'
+	tomcat "org.apache.tomcat.embed:tomcat-embed-core:${tomcatVersion}",
+			"org.apache.tomcat.embed:tomcat-embed-logging-juli:${tomcatVersion}"
+			
+    tomcat("org.ow2.jotm:ow2-jotm-dist:2.2.1") {
+		exclude group: 'org.ow2.carol'
+		exclude group: 'commons-cli'
+		exclude group: 'org.apache.geronimo.specs'
+		exclude group: 'org.objectweb.monolog'
+		exclude group: 'com.experlog'
+	}
+	tomcat("org.apache.tomcat.embed:tomcat-embed-jasper:${tomcatVersion}") {
+	  exclude group: 'org.eclipse.jdt.core.compiler', module: 'ecj'
+	}
+}
+
+/*def loadEnvSpecificConfig() {
+			def environment = project.hasProperty('env') ? project.env : 'local'
+			println "Environment is set to $environment"
+			def envSpecFile = file('/config/envt.config')
+			def config = new ConfigSlurper(environment).parse(envSpecFile.toURI().toURL())
+			project.ext.set('env', config)
+}*/
+
+task integrationTest(type: Test, dependsOn: jar) {
+	testClassesDir = sourceSets.integration.output.classesDir
+	classpath = sourceSets.integration.runtimeClasspath
+	systemProperties['jar.path'] = jar.archivePath
+}
+
+check.dependsOn integrationTest
+
+task explodedWar(dependsOn: ['clean', 'war']) << {
+	File exploded = "$buildDir/exploded/developer.war" as File
+	ant.unzip(src: war.archivePath, dest: exploded)
+}
+
+task copyResourceBundle(type: Copy) {
+	from 'src/main/webapp/WEB-INF/i18n'
+	into 'build/exploded/developer.war/resources/properties'
+}
+
+war {
+	from('src/main/webapp/WEB-INF/i18n') {
+		into 'resources'
+	}
+}
+
+copyResourceBundle.dependsOn explodedWar
+
+/** Tomcat settings */
+
+buildscript {
+	repositories {
+		jcenter()
+	}
+
+	dependencies {
+		classpath 'org.gradle.api.plugins:gradle-tomcat-plugin:1.2.2'
+	}
+}
+
+tomcat {
+	httpPort = 9080
+	httpsPort = 9443
+	ajpPort=9001
+	stopPort=9008
+	enableSSL = false
+}
+/** Eclipse settings */
+
+/*eclipse {
+	project {
+		natures.add 'org.eclipse.jdt.groovy.core.groovyNature'
+		natures.add 'org.springsource.ide.eclipse.gradle.core.nature'
+	}
+	classpath {
+		file {
+			withXml {
+				Node node = it.asNode()
+				node.appendNode('classpathentry',[exported:"true",kind:"con",path:"GROOVY_SUPPORT"])
+				node.appendNode('classpathentry',[exported:"true",kind:"con",path:"GROOVY_DSL_SUPPORT"])
+			}
+			whenMerged { classpath ->
+				classpath.entries.findAll { it.path.contains('JRE_CONTAINER') }.each {
+					it.path += "/org.eclipse.jdt.internal.debug.ui.launcher.StandardVMType/JavaSE-1.7"
+				}
+			}
+		}
+	}
+}*/
